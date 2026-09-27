@@ -48,6 +48,25 @@ Faders and meters for DRUM, LEAD, BASS, AUDIO and MASTER. Tap a name to mute, ho
 ### MANTIS
 The Synapse mantis dances to your song on the demoscene stage, locked to the sequencer's beat. Tap to pet it.
 
+## Haptic subwoofer
+
+The Core2 can't reproduce low bass through its little speaker, so the chassis plays it. The vibration motor is
+an ERM (a spinning off-centre weight): its **spin rate is its vibration frequency**, and the spin rate follows the
+motor-rail voltage. Mantis Studio drives that rail directly in millivolts (AXP192 LDO3 on Core2, AXP2101 DLDO1 on
+Core2 v1.1) and plays every bass note as a rotor speed in the note's own pitch class, folded into the motor's range
+by octaves, so what you feel (and the faint buzz you hear) is **in tune** with the song.
+
+* Between the 100 mV rail steps it dithers (sigma-delta, 200 decisions a second); the rotor's inertia averages them
+  into in-between speeds, for pitch within a few cents.
+* Note-ons kick-start the rotor with a short overdrive so fast bass lines stay tight; legato glides slide the rotor;
+  releases cut it. Kicks get a full-rail punch, then the drum's body on the lowest note the motor can hold.
+* The audio engine timestamps every bass note and kick with the moment it will be *heard*, and the motor is started
+  a few milliseconds early because the rotor has mass, so feel and sound land together.
+* **MIX → sub:** off / kick / full. **MIX → hold TUNE:** leave the Core2 on a table for ~8 s; it spins the motor at
+  every rail step and measures the real rotor speed with the IMU (accelerometer low-pass bypassed, ~3 kHz sampling,
+  zero-crossing count). The result is saved and used from then on; until then a datasheet model is used.
+  The panel shows the note the chassis is playing.
+
 ## Recording and the speaker
 The Core2 routes its microphone and speaker through one I2S port, so they can't run at the same time. While a sample or a
 clip records, playback pauses, and the **vibration motor becomes the metronome** (strong on the one, lighter on the other

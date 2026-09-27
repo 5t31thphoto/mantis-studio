@@ -6,6 +6,7 @@
 // ============================================================
 #include "app.h"
 #include "audio.h"
+#include "sub.h"
 #include "fx.h"
 #include "mantis_splash.h"
 #include <string.h>
@@ -18,23 +19,10 @@ bool g_shakeKick = false;
 static float g_ax = 0, g_ay = 0, g_az = 1, g_shake = 0;
 static uint32_t g_shakeAt = 0;
 
-// ---------------- haptics ----------------
-static uint32_t g_hapUntil = 0, g_kickStart = 0, g_kickEnd = 0;
-static uint8_t g_hapLevel = 0, g_vibNow = 255;
-static void vib(uint8_t v) { if (v != g_vibNow) { g_vibNow = v; M5.Power.setVibration(v); } }
-void hap(uint8_t level, uint16_t ms) { if (level >= g_hapLevel || millis() >= g_hapUntil) { g_hapLevel = level; g_hapUntil = millis() + ms; } }
-void kickSubHaptic() { g_kickStart = millis(); g_kickEnd = g_kickStart + 140; }
-static void hapService() {
-  uint32_t now = millis();
-  if (g_kickEnd && now < g_kickEnd) {
-    float u = (float)(now - g_kickStart) / (g_kickEnd - g_kickStart), env = (1.f - u) * (1.f - u);
-    vib((uint8_t)(env * (((now / 9) & 1) ? 230 : 40)));
-    return;
-  }
-  g_kickEnd = 0;
-  if (g_hapLevel && now < g_hapUntil) { vib(g_hapLevel); return; }
-  g_hapLevel = 0; vib(0);
-}
+// ---------------- haptics: everything goes through the haptic subwoofer (sub.cpp) ----------------
+void hap(uint8_t level, uint16_t ms) { sub::tap(level, ms); }
+void kickSubHaptic() { sub::evKick(millis()); }
+static void hapService() { sub::service(); }
 
 // ---------------- frame pipeline (render core 1, LCD push core 0) ----------------
 static M5Canvas s_fbA(&M5.Display), s_fbB(&M5.Display);
@@ -96,6 +84,7 @@ static const Rect R_REC = {214, 3, 40, 16}, R_CLR = {258, 3, 58, 16};
 static const Rect R_CH[5] = {{4, 25, 44, 18}, {52, 25, 76, 18}, {132, 25, 66, 18}, {202, 25, 74, 18}, {280, 25, 36, 18}};
 static const int KY0 = 46, KY1 = 192, ROLL0 = 195;
 static const Rect R_BARS = {12, 172, 76, 20}, R_AMUTE = {232, 172, 76, 20};
+static const Rect R_SUB = {256, 156, 60, 22}, R_TUNE = {256, 182, 60, 22};
 static const Rect R_SLOT = {256, 26, 60, 22}, R_SAVE = {256, 54, 60, 26}, R_LOAD = {256, 86, 60, 26}, R_BM = {256, 120, 28, 24}, R_BP = {288, 120, 28, 24};
 
 // ---------------- hold tracking (chips that need a deliberate hold) ----------------
@@ -194,6 +183,8 @@ static void onTap(int x, int y) {
       if (R_SLOT.in(x, y)) { s_slot = s_slot % 4 + 1; hap(50, 10); }
       else if (R_SAVE.in(x, y)) { s_holdId = 101; s_holdAt = millis(); s_holdDone = false; }
       else if (R_LOAD.in(x, y)) { s_holdId = 102; s_holdAt = millis(); s_holdDone = false; }
+      else if (R_SUB.in(x, y)) { sub::mode = (sub::mode + 1) % sub::MODE_COUNT; hap(120, 30); }
+      else if (R_TUNE.in(x, y)) { s_holdId = 103; s_holdAt = millis(); s_holdDone = false; }
       else if (R_BM.in(x, y)) aud::setBpm(aud::bpm() - 1);
       else if (R_BP.in(x, y)) aud::setBpm(aud::bpm() + 1);
       else if (y < 46 && x < 250) { int i = x / 50; if (i < 4) { aud::mute[i] = !aud::mute[i]; s_holdId = 110 + i; s_holdAt = millis(); s_holdDone = false; } }
@@ -201,6 +192,29 @@ static void onTap(int x, int y) {
     case S_MANTIS: mantisTap(x, y); break;
     default: break;
   }
+}
+static void present();
+static void tuneProgress(float u, float hz) {
+  canvas.fillSprite(rgb565(6, 4, 14));
+  canvas.setTextSize(2); canvas.setTextColor(rgb565(120, 255, 170));
+  canvas.setCursor(40, 60); canvas.print("tuning the sub");
+  canvas.setTextSize(1); canvas.setTextColor(rgb565(200, 200, 220));
+  canvas.setCursor(40, 92); canvas.print("leave the Core2 still on a table");
+  canvas.fillRect(40, 120, (int)(240 * u), 8, rgb565(0, 115, 115));
+  canvas.drawRect(40, 120, 240, 8, rgb565(93, 0, 93));
+  canvas.setCursor(40, 142);
+  if (hz > 0) canvas.printf("rotor: %.0f Hz", hz); else canvas.print("rotor: too slow to spin");
+  present();
+}
+static void tuneSub() {
+  bool was = aud::playing();
+  if (was) aud::stop();
+  delay(120);
+  bool ok = sub::tune(tuneProgress);
+  char b[40];
+  if (ok) snprintf(b, 40, "sub tuned %.0f-%.0f Hz", sub::bandLo(), sub::bandHi()); else snprintf(b, 40, "couldn't measure - kept");
+  toast(b);
+  if (was) aud::play();
 }
 static void holdFire(int id) {
   if (id == 100) {
@@ -210,6 +224,7 @@ static void holdFire(int id) {
     toast("track cleared");
   } else if (id == 101) toast(aud::save(s_slot) ? "project saved" : "no SD card");
   else if (id == 102) toast(aud::load(s_slot) ? "project loaded" : (aud::sdOk() ? "empty slot" : "no SD card"));
+  else if (id == 103) { tuneSub(); return; }
   else if (id >= 110) { aud::mute[id - 110] = !aud::mute[id - 110]; aud::clearTrack(id - 110); toast("track cleared"); }
   hap(160, 60);
 }
@@ -275,7 +290,7 @@ static void sampleImu() {
   if (!M5.Imu.update()) return;
   auto d = M5.Imu.getImuData();
   g_ax = g_ax * 0.7f + d.accel.x * 0.3f; g_ay = g_ay * 0.7f + d.accel.y * 0.3f; g_az = g_az * 0.7f + d.accel.z * 0.3f;
-  float tx = -g_ay, ty = g_ax;
+  float tx = -g_ax, ty = g_ay;                                  // IMU X = screen right, Y = screen up
   g_lookX += (tx - g_lookX) * 0.15f; g_lookY += (ty - g_lookY) * 0.15f;
   g_lookX = clampf(g_lookX, -1.1f, 1.1f); g_lookY = clampf(g_lookY, -1.1f, 1.1f);
   float mag = sqrtf(d.accel.x * d.accel.x + d.accel.y * d.accel.y + d.accel.z * d.accel.z);
@@ -466,10 +481,15 @@ static void drawMix() {
   chip(R_LOAD, "hold LOAD", rgb565(120, 200, 255), false, holdFrac(102));
   chip(R_BM, "-", rgb565(200, 200, 230), false); chip(R_BP, "+", rgb565(200, 200, 230), false);
   canvas.setTextColor(rgb565(200, 200, 220)); canvas.setCursor(262, 152); canvas.printf("%d bpm", (int)(aud::bpm() + 0.5f));
-  canvas.setCursor(258, 170); canvas.print("hold name");
-  canvas.setCursor(258, 180); canvas.print("= clear");
-  canvas.setCursor(258, 196); canvas.print("hold B =");
-  canvas.setCursor(258, 206); canvas.print("tap tempo");
+  static const char *SM[] = {"sub: off", "sub: kick", "sub: full"};
+  chip(R_SUB, SM[sub::mode], rgb565(140, 255, 60), sub::mode != 0);
+  chip(R_TUNE, "hold TUNE", rgb565(0, 170, 170), false, holdFrac(103));
+  float hz = sub::nowHz();                                  // what the chassis is playing right now
+  canvas.setCursor(258, 210);
+  if (hz > 0) {
+    int n = (int)lroundf(12.f * log2f(hz / 440.f)) + 69;
+    canvas.setTextColor(rgb565(140, 255, 60)); canvas.printf("%s%d %3.0fHz", KEY_N[(n % 12 + 12) % 12], n / 12 - 1, hz);
+  } else { canvas.setTextColor(rgb565(90, 90, 110)); canvas.printf(sub::tuned() ? "sub tuned" : "sub ~model"); }
 }
 static void drawTempo() {
   canvas.fillRoundRect(70, 80, 180, 70, 12, rgb565(18, 10, 34));
@@ -503,6 +523,7 @@ void setup() {
   splash();
   fx::begin();
   mantisBegin();
+  sub::begin();
   aud::begin();
   if (s_double) {
     s_dispIdle = xSemaphoreCreateBinary(); xSemaphoreGive(s_dispIdle);

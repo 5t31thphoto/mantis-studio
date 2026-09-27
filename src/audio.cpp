@@ -3,6 +3,7 @@
 // ============================================================
 #include "app.h"
 #include "audio.h"
+#include "sub.h"
 #include <SD.h>
 #include <SPI.h>
 #include <string.h>
@@ -13,6 +14,10 @@ static const int SR = 22050, BLK = 192, MSR = 16000;       // MSR: mic / sample 
 static const int REC_MAX = MSR * 8 / 10;
 static const int CLIP_MAX = MSR * 24;                       // 24 s of clip
 static const int LAT_SAMPLES = SR * 22 / 1000;              // what you hear lags the render
+static const uint32_t SUB_LAT_MS = 20;                      // render -> ears (1 queued block + DMA)
+static uint32_t s_blockMs = 0;                              // when the block being rendered will be heard
+static int s_evOff = 0;                                     // sample offset inside that block
+static inline uint32_t heardAt() { return s_blockMs + (uint32_t)(s_evOff * 1000 / SR); }
 
 // ---------- exported ----------
 bool rec[T_COUNT] = {true, true, true, true}, mute[T_COUNT];
@@ -139,6 +144,7 @@ static void padStart(int p) {
   static const float w[PAD_COUNT] = {0.3f, 0.5f, 1.f, 0.8f};
   s_onsetAcc = fmaxf(s_onsetAcc, w[p]);
   if (p <= PAD_HAT_O) s_hatAcc += 0.5f; else if (p == PAD_KICK) s_kickAcc = 1.f;
+  if (p == PAD_KICK && !mute[T_DRUM] && vol[T_DRUM] > 0.05f) sub::evKick(heardAt());
 }
 static void leadStart(int note, int seqOff) {
   int best = 0; float bestScore = 1e9f;
@@ -155,10 +161,11 @@ static void leadStop(int note) { for (auto &v : s_lv) if (v.gate && v.note == no
 static void bassStart(int note, int seqOff) {
   bool wasOn = s_bv.gate && s_bv.env > 0.05f;
   s_bv.note = (uint8_t)note; s_bv.gate = true; s_bv.seqOff = seqOff; s_bv.age = 0;
+  if (!mute[T_BASS] && vol[T_BASS] > 0.1f) sub::evBassOn((uint8_t)note, heardAt(), wasOn);
   s_bassTarget = mtof(note) / SR;
   if (!wasOn) s_bv.inc = s_bassTarget;                       // glide only when legato
 }
-static void bassStop(int note) { if (s_bv.gate && s_bv.note == note && s_bv.seqOff < 0) s_bv.gate = false; }
+static void bassStop(int note) { if (s_bv.gate && s_bv.note == note && s_bv.seqOff < 0) { s_bv.gate = false; sub::evBassOff(heardAt()); } }
 static void clickStart(bool acc, float f = 0) { s_click = {0, 1.f, f > 0 ? f : (acc ? 1900.f : 1250.f)}; }
 
 // ============================================================
@@ -175,7 +182,7 @@ static void fireStep(int st) {
   for (int t = 0; t < 2; t++) {
     // releases first, then new notes
     if (t == 0) { for (auto &v : s_lv) if (v.gate && v.seqOff == st) v.gate = false; }
-    else if (s_bv.gate && s_bv.seqOff == st) s_bv.gate = false;
+    else if (s_bv.gate && s_bv.seqOff == st) { s_bv.gate = false; sub::evBassOff(heardAt()); }
     for (int i = 0; i < s_nev[t]; i++) {
       Ev &e = s_ev[t][i];
       if (e.step != st) continue;
@@ -240,7 +247,7 @@ static void handle(const Cmd &c) {
     case C_STOP:
       s_play = false; s_step = -1;
       for (auto &v : s_lv) if (v.seqOff >= 0) v.gate = false;
-      if (s_bv.seqOff >= 0) s_bv.gate = false;
+      if (s_bv.seqOff >= 0 && s_bv.gate) { s_bv.gate = false; sub::evBassOff(heardAt()); }
       break;
     case C_SFX: clickStart(false, 2400.f + c.a * 10.f); break;
   }
@@ -338,6 +345,7 @@ static void synth(float *out, int n) {
 
 static void render(int16_t *dst) {
   static float buf[BLK];
+  s_blockMs = millis() + SUB_LAT_MS; s_evOff = 0;
   Cmd c;
   while (xQueueReceive(s_q, &c, 0) == pdTRUE) handle(c);
   int i = 0;
@@ -358,6 +366,7 @@ static void render(int16_t *dst) {
       double loopLen = s_stepLen * STEPS;
       if (s_pos >= loopLen) s_pos -= loopLen;
       int now = (int)floor(s_pos / s_stepLen);
+      s_evOff = i;
       if (now != before) fireStep(now % STEPS);
     }
     // arpeggiator: 16ths, on the grid when playing
@@ -707,7 +716,7 @@ void service(float dt) {
   for (int p = 0; p < PAD_COUNT; p++)
     if (s_hitCnt[p] != s_seenCnt[p]) {
       s_seenCnt[p] = s_hitCnt[p]; padFlashMs[p] = now;
-      if (p == PAD_KICK) kickSubHaptic(); else if (p == PAD_SNARE) hap(100, 20); else hap(40, 8);
+      if (p == PAD_SNARE) hap(70, 12);                  // kicks live in the haptic sub (timed to the audio)
     }
   // meters (render accumulates, we drain)
   float n = SR * dt; if (n < 1) n = 1;
