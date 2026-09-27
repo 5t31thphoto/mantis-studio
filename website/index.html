@@ -2,17 +2,124 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MANTIS STUDIO — Core2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANTIS STUDIO · M5Stack Core2</title>
 <style>
-:root{--bg:#111616;--panel:#181f1f;--teal:#007373;--plum:#5D005D;--lime:#00ff00;--text:#e8eeee;--dim:#93a2a2}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#173333 0,#111616 48%);color:var(--text);font:16px system-ui,sans-serif;min-height:100vh}main{max-width:760px;margin:auto;padding:36px 18px}header{text-align:center;border-bottom:1px solid var(--teal);padding-bottom:22px}h1{margin:0;color:var(--lime);letter-spacing:.22em}h2{color:#63d0d0;font-size:1.1rem}.tag{color:var(--dim)}section{background:var(--panel);border:1px solid #263333;border-left:3px solid var(--plum);border-radius:10px;padding:18px;margin:16px 0}.btn{display:inline-block;background:#202b2b;border:1px solid var(--teal);color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700;margin:5px}.btn:hover{border-color:var(--lime)}code{background:#0b1111;padding:2px 5px;border-radius:4px}footer{text-align:center;color:var(--dim);padding:24px;font-size:.85rem}
+  :root {
+    --bg: #05020c;
+    --panel: #0e0820;
+    --teal: #1ad4c0;
+    --purp: #c43cff;
+    --pink: #ff4fd8;
+    --text: #f0e8ff;
+    --dim: #8a7aad;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse at 20% 0%, #2a1050 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, #0a3040 0%, transparent 45%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  header {
+    padding: 28px 20px 18px;
+    border-bottom: 2px solid var(--purp);
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: 2.2rem;
+    letter-spacing: 0.2em;
+    background: linear-gradient(90deg, var(--teal), var(--purp), var(--pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); margin-top: 8px; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  section {
+    background: var(--panel);
+    border: 1px solid #2a1848;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 0 40px rgba(196, 60, 255, 0.08);
+  }
+  h2 { margin: 0 0 10px; color: var(--teal); font-size: 1.15rem; }
+  p, li { color: #d4c8ec; }
+  .btn {
+    display: inline-block;
+    background: linear-gradient(135deg, #1a4050, #4a1860);
+    color: var(--text);
+    border: 1px solid var(--teal);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    margin: 6px 8px 6px 0;
+  }
+  .btn:hover { border-color: var(--pink); }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
+  .mode {
+    background: #120828;
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 3px solid var(--purp);
+  }
+  .mode strong { color: var(--pink); }
+  code { background: #1a1030; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  footer { text-align: center; color: var(--dim); font-size: 0.85rem; padding: 20px; }
 </style>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 </head>
-<body><main>
-<header><h1>MANTIS STUDIO</h1><div class="tag">A pocket music workstation for M5Stack Core2</div></header>
-<section><h2>Make music without a studio-sized interface.</h2><p>MANTIS STUDIO is a four-track embedded groovebox: drum pads, lead synth, bass synth and an audio recorder, all locked to one musical timeline.</p><p>Perform, overdub, quantize or leave it loose. No piano-roll maze. No deep menus.</p></section>
-<section><h2>Tracks</h2><p><b>DRUM</b> · four-pad performance and loop recording<br><b>LEAD</b> · chord, scale and arpeggio synth<br><b>BASS</b> · electro, chip and dub voices<br><b>AUDIO</b> · microphone / instrument recording to SD<br><b>MIX</b> · four-track levels, mute, solo and transport</p></section>
-<section><h2>Install</h2><p>Use Chrome or Edge with a USB data cable. The device firmware is self-contained and does not require an internet connection after flashing.</p><esp-web-install-button manifest="firmware/manifest.json"><button slot="activate" class="btn">Install MANTIS STUDIO</button><span slot="unsupported">Use Chrome or Edge for USB install.</span></esp-web-install-button><a class="btn" href="firmware/firmware-merged.bin" download>Download firmware</a></section>
-</main><footer>MANTIS STUDIO · #007373 · #5D005D · lime</footer></body></html>
+<body>
+<header>
+  <h1>MANTIS STUDIO</h1>
+  <div class="tag">a tiny, touch-first music workstation for the M5Stack Core2 — drums, lead, bass, an audio track, a mixer, and a mantis that dances to your song</div>
+</header>
+<main>
+<section>
+  <h2>Install</h2>
+  <p>Plug the Core2 in with a data USB-C cable, use Chrome or Edge on a computer, and press the button.</p>
+  <esp-web-install-button manifest="firmware/manifest.json">
+    <button slot="activate">Install Mantis Studio</button>
+    <span slot="unsupported">Your browser can't flash devices. Use Chrome or Edge on a desktop.</span>
+  </esp-web-install-button>
+  <p><a href="firmware/firmware-merged.bin">Download firmware-merged.bin</a> (flash at offset 0x0).</p>
+</section>
+<section>
+  <h2>Everywhere</h2>
+  <p><b>A / C</b> change screen. <b>B</b> is the context button: it records when something is armed, otherwise it plays and stops.
+  <b>Hold B</b> for tap tempo with an audible click. The header flashes on every beat, with bar.beat, four beat dots and the loop bar,
+  so the pulse is always visible. <b>REC</b> in the header chooses whether your playing is recorded into the loop;
+  <b>hold CLR</b> for a second to wipe the track.</p>
+</section>
+<section>
+  <h2>Screens</h2>
+  <div class="modes">
+    <div class="mode"><strong>DRUM</strong><br>Four pads: hat, open hat, kick, snare. Play them while the loop runs and they record, quantised. Hold a pad for a second to arm it, then press B to sample your own sound into it.</div>
+    <div class="mode"><strong>LEAD</strong><br>Sixteen scale-locked keys, two fingers at once, slide between notes. Key, scale, note / chord / arp, and pluck / pad / chip sounds. Tilt the Core2 to open and close the filter.</div>
+    <div class="mode"><strong>BASS</strong><br>A mono bass with glide: electro squelch, chip or dub. Same scale and key as the lead, so everything fits.</div>
+    <div class="mode"><strong>AUDIO</strong><br>Record 1, 2 or 4 bars of voice or anything else, locked to the start of the loop. Tap the red button, then B.</div>
+    <div class="mode"><strong>MIX</strong><br>Faders and meters for every track and the master, tap a name to mute, hold it to clear. Save and load four projects on the SD card.</div>
+    <div class="mode"><strong>MANTIS</strong><br>The mantis dances to your song, locked to the beat. Tap to pet it.</div>
+  </div>
+</section>
+<section>
+  <h2>Good to know</h2>
+  <p>The Core2's microphone and speaker share one audio port, so while you record a sample or a clip the speaker goes quiet.
+  You get a count-in, and the Core2 buzzes on every beat (harder on the one) so you can feel the tempo.
+  Playback resumes from bar 1 when you're done.</p>
+  <p>Projects live on the SD card at <code>/MANTIS/PROJECTS/&lt;slot&gt;/</code>. Optional replacement kit sounds go in
+  <code>/MANTIS/SAMPLES/</code> as 16 kHz mono 16-bit raw files: <code>kick.raw</code>, <code>snare.raw</code>, <code>hat_closed.raw</code>, <code>hat_open.raw</code>.</p>
+</section>
+</main>
+</body>
+</html>
