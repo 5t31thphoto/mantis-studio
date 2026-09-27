@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MANTIS STUDIO — Core2</title>
+<style>
+:root{--bg:#111616;--panel:#181f1f;--teal:#007373;--plum:#5D005D;--lime:#00ff00;--text:#e8eeee;--dim:#93a2a2}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#173333 0,#111616 48%);color:var(--text);font:16px system-ui,sans-serif;min-height:100vh}main{max-width:760px;margin:auto;padding:36px 18px}header{text-align:center;border-bottom:1px solid var(--teal);padding-bottom:22px}h1{margin:0;color:var(--lime);letter-spacing:.22em}h2{color:#63d0d0;font-size:1.1rem}.tag{color:var(--dim)}section{background:var(--panel);border:1px solid #263333;border-left:3px solid var(--plum);border-radius:10px;padding:18px;margin:16px 0}.btn{display:inline-block;background:#202b2b;border:1px solid var(--teal);color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700;margin:5px}.btn:hover{border-color:var(--lime)}code{background:#0b1111;padding:2px 5px;border-radius:4px}footer{text-align:center;color:var(--dim);padding:24px;font-size:.85rem}
+</style>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+<body><main>
+<header><h1>MANTIS STUDIO</h1><div class="tag">A pocket music workstation for M5Stack Core2</div></header>
+<section><h2>Make music without a studio-sized interface.</h2><p>MANTIS STUDIO is a four-track embedded groovebox: drum pads, lead synth, bass synth and an audio recorder, all locked to one musical timeline.</p><p>Perform, overdub, quantize or leave it loose. No piano-roll maze. No deep menus.</p></section>
+<section><h2>Tracks</h2><p><b>DRUM</b> · four-pad performance and loop recording<br><b>LEAD</b> · chord, scale and arpeggio synth<br><b>BASS</b> · electro, chip and dub voices<br><b>AUDIO</b> · microphone / instrument recording to SD<br><b>MIX</b> · four-track levels, mute, solo and transport</p></section>
+<section><h2>Install</h2><p>Use Chrome or Edge with a USB data cable. The device firmware is self-contained and does not require an internet connection after flashing.</p><esp-web-install-button manifest="firmware/manifest.json"><button slot="activate" class="btn">Install MANTIS STUDIO</button><span slot="unsupported">Use Chrome or Edge for USB install.</span></esp-web-install-button><a class="btn" href="firmware/firmware-merged.bin" download>Download firmware</a></section>
+</main><footer>MANTIS STUDIO · #007373 · #5D005D · lime</footer></body></html>
