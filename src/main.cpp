@@ -80,7 +80,7 @@ static void chip(const Rect &r, const char *label, uint16_t col, bool on, float 
   int tw = (int)strlen(label) * 6;
   canvas.setCursor(r.x + (r.w - tw) / 2, r.y + (r.h - 7) / 2); canvas.print(label);
 }
-static const Rect R_REC = {214, 3, 40, 16}, R_CLR = {258, 3, 58, 16};
+static const Rect R_REC = {196, 1, 40, 13}, R_CLR = {240, 1, 76, 13};
 static const Rect R_CH[5] = {{4, 25, 44, 18}, {52, 25, 76, 18}, {132, 25, 66, 18}, {202, 25, 74, 18}, {280, 25, 36, 18}};
 static const int KY0 = 46, KY1 = 192, ROLL0 = 195;
 static const Rect R_BARS = {12, 172, 76, 20}, R_AMUTE = {232, 172, 76, 20};
@@ -107,7 +107,7 @@ static int keyAt(int x, int y) {
 static void keyPress(int slot, int key) {
   Slot &s = s_sl[slot];
   bool lead = s_scr == S_LEAD;
-  int base = lead ? 57 + s_key % 12 : 12 * (s_bassOct + 1) + s_key % 12;
+  int base = lead ? 48 + s_key % 12 : 12 * (s_bassOct + 1) + s_key % 12;   // lead: C3 + key (was A3 + key = the wrong key)
   s.key = key; s.n = 0;
   s.notes[s.n++] = (uint8_t)degNote(base, key);
   if (lead && s_play >= 1) { s.notes[s.n++] = (uint8_t)degNote(base, key + 2); s.notes[s.n++] = (uint8_t)degNote(base, key + 4); }
@@ -301,30 +301,66 @@ static void sampleImu() {
 // ============================================================
 //  drawing
 // ============================================================
+// ---- the visual metronome: where are we in the bar, down to the 16th, and what's coming next ----
+struct Grid { bool on; int bar, beat, s16; float f16, beatMs; };          // s16 = 16th within the bar (0..15), f16 = fraction of it
+static Grid grid() {
+  Grid g{false, 0, 0, 0, 0, 60000.f / fmaxf(aud::bpm(), 30.f)};
+  if (aud::playing()) {
+    float p = aud::loopPhase() * 64.f;                                    // 4 bars x 16 sixteenths
+    g.on = true; g.bar = (int)(p / 16.f); float b16 = fmodf(p, 16.f); g.s16 = (int)b16; g.f16 = b16 - g.s16; g.beat = g.s16 / 4;
+  } else if (s_tempo) {
+    float bp = fmodf(aud::beatPos, 4.f) * 4.f;
+    g.on = true; g.s16 = (int)bp; g.f16 = bp - g.s16; g.beat = g.s16 / 4;
+  }
+  return g;
+}
 static void drawHeader() {
   bool play = aud::playing();
-  float ph = aud::loopPhase() * 16.f;
-  int beat = (int)ph; float bf = ph - beat;
-  if (s_tempo && !play) { float bp = fmodf(aud::beatPos, 4.f); beat = (int)bp; bf = bp - beat; }
-  float flash = (play || s_tempo) ? (1.f - bf) * (1.f - bf) * ((beat & 3) == 0 ? 1.f : 0.5f) : 0.f;
-  canvas.fillRect(0, 0, W, HDR, rgb565((uint8_t)(12 + flash * 90), (uint8_t)(8 + flash * 40), (uint8_t)(24 + flash * 60)));
-  if (play) canvas.fillTriangle(6, 5, 6, 17, 16, 11, rgb565(120, 255, 140));
-  else canvas.fillRect(6, 6, 10, 10, rgb565(200, 200, 210));
-  canvas.setTextSize(1); canvas.setTextColor(rgb565(240, 240, 255));
-  canvas.setCursor(22, 8); canvas.printf("%d.%d", play ? beat / 4 + 1 : 1, play ? (beat & 3) + 1 : 1);
-  for (int k = 0; k < 4; k++) {
-    bool cur = (play || s_tempo) && (beat & 3) == k;
-    canvas.fillCircle(52 + k * 12, 11, cur ? 5 : 3, cur ? (k == 0 ? rgb565(255, 80, 80) : rgb565(255, 230, 110)) : rgb565(70, 70, 100));
-  }
-  canvas.setTextColor(SCR_COL[s_scr]); canvas.setCursor(106, 8); canvas.print(SCR_NAME[s_scr]);
-  canvas.setTextColor(rgb565(190, 190, 210)); canvas.setCursor(152, 8); canvas.printf("%dbpm", (int)(aud::bpm() + 0.5f));
+  Grid g = grid();
+  float msInBeat = ((g.s16 & 3) + g.f16) * g.beatMs * 0.25f;
+  float flash = g.on ? expf(-msInBeat / 110.f) * (g.beat == 0 ? 1.f : 0.6f) : 0.f;          // sharp attack, fast decay
+  canvas.fillRect(0, 0, W, HDR, rgb565((uint8_t)(12 + flash * 120), (uint8_t)(8 + flash * 60), (uint8_t)(24 + flash * 50)));
+  if (play) canvas.fillTriangle(4, 2, 4, 13, 13, 7, rgb565(120, 255, 140));
+  else canvas.fillRect(4, 3, 9, 9, rgb565(200, 200, 210));
+  // big beat number (and the bar)
+  canvas.setTextSize(2); canvas.setTextColor(g.on ? (g.beat == 0 ? rgb565(255, 110, 70) : rgb565(255, 255, 255)) : rgb565(120, 120, 140));
+  canvas.setCursor(18, 0); canvas.printf("%d", g.on ? g.beat + 1 : 1);
+  canvas.setTextSize(1); canvas.setTextColor(rgb565(170, 170, 190));
+  canvas.setCursor(34, 4); canvas.printf("bar %d", g.bar + 1);
+  canvas.setTextColor(SCR_COL[s_scr]); canvas.setCursor(84, 4); canvas.print(SCR_NAME[s_scr]);
+  canvas.setTextColor(rgb565(190, 190, 210)); canvas.setCursor(132, 4); canvas.printf("%dbpm", (int)(aud::bpm() + 0.5f));
   int t = trackOf(s_scr);
   if (t >= 0) {
     if (t != T_AUDIO) chip(R_REC, "REC", rgb565(255, 70, 70), aud::rec[t] && ((millis() / 400) & 1 || !play));
     chip(R_CLR, "hold CLR", rgb565(160, 160, 190), false, holdFrac(100));
   }
-  // loop position
-  if (play) canvas.fillRect(0, HDR - 2, (int)(aud::loopPhase() * W), 2, SCR_COL[s_scr]);
+  // the lane: 16 cells per bar grouped in 4 beats; the current 16th lit, a playhead sweeping toward the next beat
+  const int LY = 15, LH = 7, CW = W / 16;
+  for (int k = 0; k < 16; k++) {
+    int x = k * CW + 1, w = CW - 2 - ((k & 3) == 3 ? 2 : 0);
+    bool isBeat = (k & 3) == 0, isDown = k == 0, cur = g.on && k == g.s16, past = g.on && k < g.s16;
+    uint16_t c;
+    if (cur) c = isDown ? rgb565(255, 90, 50) : (isBeat ? rgb565(170, 255, 80) : ((k & 1) == 0 ? rgb565(230, 230, 240) : rgb565(160, 160, 180)));
+    else if (past) c = isBeat ? rgb565(60, 90, 50) : rgb565(45, 45, 60);
+    else c = isBeat ? rgb565(80, 80, 110) : rgb565(30, 30, 44);
+    int h = isBeat ? LH : ((k & 1) == 0 ? LH - 2 : LH - 4);                      // beats tall, 8ths mid, 16ths short
+    canvas.fillRect(x, LY + (LH - h), w, h, c);
+  }
+  if (g.on) { int px = (int)((g.s16 + g.f16) * CW); canvas.fillRect(px - 1, LY - 1, 2, LH + 1, rgb565(255, 255, 255)); }
+}
+// a frame round the work area that pulses on the grid: hard on beats (hardest on the one), a tick on 8ths and 16ths
+static void drawBeatFrame() {
+  Grid g = grid();
+  if (!g.on || s_scr == S_MANTIS) return;
+  float ms16 = g.f16 * g.beatMs * 0.25f;
+  float k; uint16_t base;
+  if ((g.s16 & 3) == 0) { k = expf(-ms16 / 90.f); base = g.beat == 0 ? rgb565(255, 90, 50) : rgb565(170, 255, 80); }
+  else if ((g.s16 & 1) == 0) { k = 0.5f * expf(-ms16 / 60.f); base = rgb565(230, 230, 240); }
+  else { k = 0.28f * expf(-ms16 / 45.f); base = rgb565(160, 160, 190); }
+  int r = (base >> 11) & 31, gg = (base >> 5) & 63, b = base & 31;
+  uint16_t c = (uint16_t)(((int)(4 + (r - 4) * k) << 11) | ((int)(8 + (gg - 8) * k) << 5) | (int)(6 + (b - 6) * k));
+  int th = 2 + (int)(k * 7.f);
+  for (int i = 0; i < th; i++) canvas.drawRect(i, CY0 + i, W - 2 * i, CY1 - CY0 - 2 * i, c);
 }
 static void drawFooter() {
   canvas.fillRect(0, CY1, W, FTR, rgb565(8, 6, 16));
@@ -559,6 +595,7 @@ void loop() {
     canvas.fillRoundRect(W / 2 - tw / 2 - 8, 104, tw + 16, 20, 6, rgb565(10, 10, 20));
     canvas.setTextColor(rgb565(255, 255, 200)); canvas.setCursor(W / 2 - tw / 2, 110); canvas.print(s_toast);
   }
+  drawBeatFrame();
   drawHeader();
   drawFooter();
   g_shakeKick = false;

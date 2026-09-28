@@ -437,7 +437,25 @@ static int16_t *s_recBuf = nullptr;
 static uint32_t s_clipCountMs = 0, s_clipRecMs = 0;
 static bool s_resume = false;
 
+// Clean a raw mic recording: remove the PDM mic's DC offset (one-pole high-pass ~40 Hz), fade over the
+// mic's start-up transient, then normalise gently (capped gain + soft limiter, never pushed into clipping).
+static void cleanRecording(int16_t *b, int n) {
+  if (n <= 0) return;
+  float xp = b[0], y = 0;
+  for (int i = 0; i < n; i++) { float x = b[i]; y = 0.985f * (y + x - xp); xp = x; b[i] = (int16_t)clampf(y, -32767.f, 32767.f); }
+  int pk = 1; for (int i = 0; i < n; i++) { int v = abs(b[i]); if (v > pk) pk = v; }
+  float g = fminf(3.f, 21000.f / pk);
+  int fin = MSR / 50, fout = MSR / 100;                         // 20 ms in, 10 ms out
+  for (int i = 0; i < n; i++) {
+    float v = b[i] * g / 32767.f;
+    if (fabsf(v) > 0.8f) v = copysignf(0.8f + 0.2f * tanhf((fabsf(v) - 0.8f) / 0.2f), v);   // soft limiter
+    if (i < fin) v *= (float)i / fin;
+    if (i > n - fout) v *= (float)(n - i) / fout;
+    b[i] = (int16_t)(v * 32767.f);
+  }
+}
 static int trimSample(int16_t *b, int n) {
+  cleanRecording(b, n);
   int pk = 1;
   for (int i = 0; i < n; i++) { int a = abs(b[i]); if (a > pk) pk = a; }
   if (pk < 900) return 0;
@@ -448,7 +466,7 @@ static int trimSample(int16_t *b, int n) {
   en += MSR * 25 / 1000; if (en > n) en = n;
   int k = en - st; if (k < 64) return 0;
   memmove(b, b + st, k * 2);
-  float g = fminf(6.f, 26000.f / pk);
+  float g = fminf(1.5f, 26000.f / pk);                          // already normalised by cleanRecording
   for (int i = 0; i < k; i++) {
     float v = b[i] * g;
     if (i < 16) v *= i / 16.f;
@@ -515,7 +533,7 @@ static void recService() {
       lastTick = -1;
       if (!s_recBuf) s_recBuf = palloc(REC_MAX);
       M5.Mic.record(s_recBuf, REC_MAX, MSR);
-      s_rs = REC_CAPTURE; s_rt = now; hap(170, 40);
+      s_rs = REC_CAPTURE; s_rt = now;                                  // (no buzz now: the motor would be recorded)
     }
   } else if (s_rs == REC_CAPTURE) {
     if (now - s_rt >= 800 && M5.Mic.isRecording() == 0) {
@@ -535,7 +553,7 @@ static void recService() {
     float beatMs = 60000.f / s_bpm;
     static int lastBeat = -1;
     int beat = (int)((now - s_ct) / beatMs);
-    if (beat != lastBeat) { lastBeat = beat; hap((beat & 3) == 0 ? 220 : 120, (beat & 3) == 0 ? 60 : 30); }
+    if (beat != lastBeat) { lastBeat = beat; if (s_cs == REC_COUNT) hap((beat & 3) == 0 ? 220 : 120, (beat & 3) == 0 ? 60 : 30); }   // count-in only: during the take the motor would be recorded
     if (s_cs == REC_COUNT) {
       if (s_spk) { Cmd c{C_STOP}; xQueueSend(s_q, &c, 0); vTaskDelay(15); toMic(); }
       if (now - s_ct >= s_clipCountMs) {
@@ -548,10 +566,8 @@ static void recService() {
     } else if (now - s_ct >= s_clipRecMs && M5.Mic.isRecording() == 0) {
       int n = (int)((uint64_t)s_clipRecMs * MSR / 1000);
       if (n > CLIP_MAX) n = CLIP_MAX;
-      int pk = 1; for (int i = 0; i < n; i += 2) { int a = abs(s_clip[i]); if (a > pk) pk = a; }
-      float g = fminf(4.f, 24000.f / pk);
-      for (int i = 0; i < n; i++) s_clip[i] = (int16_t)clampf(s_clip[i] * g, -32767.f, 32767.f);
-      for (int i = 0; i < 64 && i < n; i++) { s_clip[i] = (int16_t)(s_clip[i] * i / 64); s_clip[n - 1 - i] = (int16_t)(s_clip[n - 1 - i] * i / 64); }
+      int pk = 1; for (int i = 0; i < n; i += 2) { int a = abs(s_clip[i] - s_clip[i > 0 ? i - 1 : 0] / 2); if (a > pk) pk = a; }
+      cleanRecording(s_clip, n);
       s_clipLen = n;
       computePeaks();
       s_cs = pk > 600 ? REC_OK : REC_QUIET;
