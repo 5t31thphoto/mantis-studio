@@ -53,6 +53,9 @@ float recProgress();
 int recPad();
 bool userSample(int pad);
 void clearUser(int pad);
+bool sdSample(int pad);                  // pad is playing the SD card's sample
+void clearPad(int pad);                  // explicit clear: built-in sound, remembered (SD file untouched)
+void stepSet(int pad, int st, bool on);  // step editor (st in 32nds)
 
 // ---- lead / bass ----
 void noteOn(int trk, int note);

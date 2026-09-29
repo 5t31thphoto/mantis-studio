@@ -80,7 +80,9 @@ static void chip(const Rect &r, const char *label, uint16_t col, bool on, float 
   int tw = (int)strlen(label) * 6;
   canvas.setCursor(r.x + (r.w - tw) / 2, r.y + (r.h - 7) / 2); canvas.print(label);
 }
-static const Rect R_REC = {196, 1, 40, 13}, R_CLR = {240, 1, 76, 13};
+static const Rect R_REC = {196, 1, 40, 13}, R_CLR = {240, 1, 76, 13}, R_EDIT = {164, 1, 30, 13};
+static bool s_stepEdit = false; static int s_editBar = 0;
+static void editorTap(int x, int y);
 static const Rect R_CH[5] = {{4, 25, 44, 18}, {52, 25, 76, 18}, {132, 25, 66, 18}, {202, 25, 74, 18}, {280, 25, 36, 18}};
 static const int KY0 = 46, KY1 = 192, ROLL0 = 195;
 static const Rect R_BARS = {12, 172, 76, 20}, R_AMUTE = {232, 172, 76, 20};
@@ -133,7 +135,7 @@ static int padAt(int x, int y) { if (y < CY0 || y >= CY1) return -1; return ((y 
 static void setScreen(int dir) {
   releaseAll();
   s_scr = (uint8_t)((s_scr + dir + S_COUNT) % S_COUNT);
-  s_tempo = false; aud::metronome(false);
+  s_tempo = false; aud::metronome(false); s_stepEdit = false;
   for (auto &a : s_padArmed) a = false;
   s_clipArmed = false;
   hap(80, 18);
@@ -163,6 +165,7 @@ static void onTap(int x, int y) {
   int t = trackOf(s_scr);
   if (t >= 0 && t != T_AUDIO && R_REC.in(x, y)) { aud::rec[t] = !aud::rec[t]; hap(60, 15); return; }
   if (t >= 0 && R_CLR.in(x, y)) { s_holdId = 100; s_holdAt = millis(); s_holdDone = false; return; }
+  if (s_scr == S_DRUM && R_EDIT.in(x, y)) { s_stepEdit = !s_stepEdit; for (auto &a : s_padArmed) a = false; hap(80, 15); return; }
   if (y < HDR) return;
   if (s_tempo) { tempoTap(); return; }
   switch (s_scr) {
@@ -220,7 +223,6 @@ static void holdFire(int id) {
   if (id == 100) {
     int t = trackOf(s_scr);
     aud::clearTrack(t);
-    if (t == T_DRUM) for (int p = 0; p < 4; p++) aud::clearUser(p);
     toast("track cleared");
   } else if (id == 101) toast(aud::save(s_slot) ? "project saved" : "no SD card");
   else if (id == 102) toast(aud::load(s_slot) ? "project loaded" : (aud::sdOk() ? "empty slot" : "no SD card"));
@@ -255,10 +257,11 @@ static void pollInput() {
     if (td.wasPressed()) {
       if (anyBtn) continue;
       if (s_scr == S_DRUM && !s_tempo && td.y >= CY0) {
+        if (s_stepEdit) { editorTap(td.x, td.y); continue; }
         int id = padAt(td.x, td.y);
         if (id < 0) continue;
         if (aud::recStage() == aud::REC_COUNT || aud::recStage() == aud::REC_CAPTURE) continue;
-        if (s_padArmed[id]) { s_padArmed[id] = false; if (aud::userSample(id)) { aud::clearUser(id); toast("slot cleared"); } hap(80, 40); continue; }
+        if (s_padArmed[id]) { s_padArmed[id] = false; aud::clearPad(id); toast("pad cleared (SD file kept)"); hap(80, 40); continue; }
         aud::padHit(id); s_padHold[i] = id; s_padHoldAt[i] = now;
         continue;
       }
@@ -334,6 +337,7 @@ static void drawHeader() {
     if (t != T_AUDIO) chip(R_REC, "REC", rgb565(255, 70, 70), aud::rec[t] && ((millis() / 400) & 1 || !play));
     chip(R_CLR, "hold CLR", rgb565(160, 160, 190), false, holdFrac(100));
   }
+  if (s_scr == S_DRUM) chip(R_EDIT, "EDIT", rgb565(120, 200, 255), s_stepEdit);
   // the lane: 16 cells per bar grouped in 4 beats; the current 16th lit, a playhead sweeping toward the next beat
   const int LY = 15, LH = 7, CW = W / 16;
   for (int k = 0; k < 16; k++) {
@@ -374,7 +378,45 @@ static void drawFooter() {
   canvas.setCursor(W - 6 - (int)strlen(nx) * 6, CY1 + 4); canvas.print(nx);
 }
 
+// step editor: 4 pad rows x 16 sixteenths, bar tabs 1-4; tap a cell to toggle it
+static const int ED_X = 40, ED_Y = CY0 + 6, ED_RH = 40, ED_CW = (W - 44) / 16, ED_TABY = CY0 + 6 + 4 * 40 + 6;
+static void drawStepEditor() {
+  static const uint16_t base[4] = {rgb565(0, 150, 140), rgb565(170, 30, 150), rgb565(70, 190, 35), rgb565(40, 80, 170)};
+  int st = aud::step();
+  int play16 = st >= 0 ? (st >> 1) : -1;
+  for (int r = 0; r < 4; r++) {
+    int y = ED_Y + r * ED_RH;
+    canvas.setTextSize(1); canvas.setTextColor(base[r]); canvas.setCursor(4, y + ED_RH / 2 - 4); canvas.print(PAD_N[r]);
+    for (int c = 0; c < 16; c++) {
+      int s16 = s_editBar * 16 + c, x = ED_X + c * ED_CW + (c / 4) * 1;
+      bool on = aud::stepOn(r, s16 * 2) || aud::stepOn(r, s16 * 2 + 1);
+      bool cur = s16 == play16;
+      uint16_t fill = on ? base[r] : ((c & 3) == 0 ? rgb565(38, 38, 60) : rgb565(24, 24, 40));
+      canvas.fillRoundRect(x + 1, y + 3, ED_CW - 2, ED_RH - 6, 3, fill);
+      if (on) canvas.drawRoundRect(x + 1, y + 3, ED_CW - 2, ED_RH - 6, 3, rgb565(255, 255, 255));
+      if (cur) canvas.drawRoundRect(x, y + 2, ED_CW, ED_RH - 4, 3, rgb565(255, 230, 90));
+    }
+  }
+  for (int b = 0; b < 4; b++) {
+    int x = ED_X + b * (ED_CW * 4 + 1);
+    bool sel = b == s_editBar, playing = play16 >= 0 && play16 / 16 == b;
+    canvas.fillRoundRect(x + 2, ED_TABY, ED_CW * 4 - 4, 16, 4, sel ? rgb565(90, 90, 140) : rgb565(30, 30, 46));
+    if (playing) canvas.drawRoundRect(x + 2, ED_TABY, ED_CW * 4 - 4, 16, 4, rgb565(255, 230, 90));
+    canvas.setTextColor(rgb565(230, 230, 250)); canvas.setCursor(x + ED_CW * 2 - 12, ED_TABY + 4); canvas.printf("bar %d", b + 1);
+  }
+}
+static void editorTap(int x, int y) {
+  if (y >= ED_TABY && y < ED_TABY + 18) { int b = (x - ED_X) / (ED_CW * 4 + 1); if (b >= 0 && b < 4) { s_editBar = b; hap(60, 12); } return; }
+  int r = (y - ED_Y) / ED_RH, c = (x - ED_X) / ED_CW;
+  if (r < 0 || r > 3 || c < 0 || c > 15 || x < ED_X) return;
+  int s16 = s_editBar * 16 + c;
+  bool on = aud::stepOn(r, s16 * 2) || aud::stepOn(r, s16 * 2 + 1);
+  aud::stepSet(r, s16 * 2, !on); if (on) aud::stepSet(r, s16 * 2 + 1, false);   // off clears both 32nds in the cell
+  if (!on) aud::padHit(r);                                                           // hear it as you place it
+  hap(on ? 50 : 90, 12);
+}
 static void drawDrum() {
+  if (s_stepEdit) { drawStepEditor(); return; }
   uint32_t now = millis();
   static const uint16_t base[4] = {rgb565(0, 150, 140), rgb565(170, 30, 150), rgb565(70, 190, 35), rgb565(40, 80, 170)};
   int st = aud::step(), ph = (CY1 - CY0) / 2;
@@ -393,6 +435,7 @@ static void drawDrum() {
     canvas.setCursor(px + W / 4 - (int)strlen(PAD_N[i]) * 6, py + 10); canvas.print(PAD_N[i]);
     canvas.setTextSize(1);
     if (aud::userSample(i)) { canvas.setCursor(px + 12, py + 10); canvas.print("SMP"); }
+    else if (aud::sdSample(i)) { canvas.setCursor(px + 12, py + 10); canvas.print("SD"); }
     for (int s = 0; s < 64; s++) {
       int bx = px + 16 + (s & 15) * 8, by = py + 36 + (s >> 4) * 13;
       bool on = aud::stepOn(i, s * 2) || aud::stepOn(i, s * 2 + 1);

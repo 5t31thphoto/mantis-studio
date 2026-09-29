@@ -90,3 +90,19 @@ Without a card everything works except save / load.
 | `src/fx.cpp` | 160×120 indexed demo engine with dual-core raster (stage behind the mantis) |
 
 Tuning knobs: `BLK` and `LAT_SAMPLES` in `audio.cpp` (latency vs. safety), speaker `dma_buf_len / dma_buf_count` in `aud::begin()`.
+
+
+## Drum pads: step editor and samples
+
+* **EDIT** (top of the DRUM screen) opens the step editor: one row per pad, 16 sixteenths per bar, tabs for bars 1-4.
+  Tap a cell to add or remove a hit (you hear it as you place it); the playing step is outlined. EDIT again returns
+  to the pads.
+* **hold CLR** clears the drum *sequence* only. Samples stay.
+* Samples on the SD card (`/MANTIS/SAMPLES/hat_closed.raw`, `hat_open.raw`, `kick.raw`, `snare.raw`) are used
+  automatically. A pad plays, in order of preference: a sample you recorded on it, then the SD card sample, then
+  the built-in sound. The pad shows SMP or SD.
+* To clear a pad's sample: long-press the pad to arm it, then tap it again. It goes back to the built-in sound and
+  stays that way (even after a restart) until you record a new sample on it. The file on the SD card is never
+  deleted.
+* The visual metronome: the lane under the header shows every 16th of the bar (the one in red) with a playhead,
+  and a frame round the screen flashes on every beat and ticks on the 8ths and 16ths.

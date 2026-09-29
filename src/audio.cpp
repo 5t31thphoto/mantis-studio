@@ -3,6 +3,9 @@
 // ============================================================
 #include "app.h"
 #include "audio.h"
+#ifndef HOST
+#include <Preferences.h>
+#endif
 #include "sub.h"
 #include <SD.h>
 #include <SPI.h>
@@ -326,8 +329,10 @@ static void synth(float *out, int n) {
     }
     // audio clip, locked to the loop
     if (s_play && s_clipLen > 0) {
-      int idx = (int)(s_pos * ((double)MSR / SR));
-      if (idx < s_clipLen) a = s_clip[idx] * (1.f / 32768.f);
+      // per-sample position (s_pos only advances after the whole chunk), linearly interpolated 16 k -> 22.05 k
+      double fi = (s_pos + i) * ((double)MSR / SR);
+      int i0 = (int)fi; float fr = (float)(fi - i0);
+      if (i0 + 1 < s_clipLen) a = (s_clip[i0] + (s_clip[i0 + 1] - s_clip[i0]) * fr) * (1.f / 32768.f);
     }
     float mix = (mute[T_DRUM] ? 0 : d * vol[T_DRUM]) + (mute[T_LEAD] ? 0 : l * vol[T_LEAD]) +
                 (mute[T_BASS] ? 0 : b * vol[T_BASS]) + (mute[T_AUDIO] ? 0 : a * vol[T_AUDIO]);
@@ -490,8 +495,29 @@ float recProgress() {
   uint32_t e = millis() - s_rt;
   return clampf(e / (s_rs == REC_CAPTURE ? 800.f : 900.f), 0.f, 1.f);
 }
+static int16_t *s_sdKit[PAD_COUNT]; static int s_sdKitLen[PAD_COUNT];
+static bool s_cleared[PAD_COUNT];                               // the user cleared this pad: built-in sound (SD file untouched)
+static void saveCleared() {
+#ifndef HOST
+  uint8_t m = 0; for (int k = 0; k < PAD_COUNT; k++) if (s_cleared[k]) m |= 1 << k;
+  Preferences p; if (p.begin("mstudio", false)) { p.putUChar("padclr", m); p.end(); }
+#endif
+}
+static void baseInstall(int p) {                                 // what the pad plays when there's no recorded sample
+  if (!s_cleared[p] && s_sdKit[p]) install(p, s_sdKit[p], s_sdKitLen[p], false);
+  else install(p, s_syn[p], s_synLen[p], false);
+}
 bool userSample(int p) { return s_user[p]; }
-void clearUser(int p) { if (s_user[p]) install(p, s_syn[p], s_synLen[p], false); }
+bool sdSample(int p) { return !s_user[p] && !s_cleared[p] && s_sdKit[p] != nullptr; }
+void clearUser(int p) { if (s_user[p]) baseInstall(p); }         // e.g. a project without its own pad sample: back to the SD kit
+void clearPad(int p) {                                           // the explicit clear (arm, then tap the pad again)
+  s_cleared[p] = true; saveCleared();
+  install(p, s_syn[p], s_synLen[p], false);
+}
+void stepSet(int pad, int st, bool on) {                         // step editor: st in 32nds
+  uint32_t bit = 1u << (st & 31);
+  if (on) s_pat[pad][st >> 5] |= bit; else s_pat[pad][st >> 5] &= ~bit;
+}
 
 void clipRec(int bars) {
   if (s_rs != REC_IDLE || s_cs != REC_IDLE || !s_clip) return;
@@ -539,7 +565,7 @@ static void recService() {
     if (now - s_rt >= 800 && M5.Mic.isRecording() == 0) {
       int n = trimSample(s_recBuf, REC_MAX);
       int16_t *keep = n > 0 ? palloc(n) : nullptr;
-      if (keep) { memcpy(keep, s_recBuf, n * 2); install(s_recPad, keep, n, true); s_rs = REC_OK; hap(200, 60); }
+      if (keep) { memcpy(keep, s_recBuf, n * 2); install(s_recPad, keep, n, true); s_cleared[s_recPad] = false; saveCleared(); s_rs = REC_OK; hap(200, 60); }
       else { s_rs = REC_QUIET; hap(60, 120); }
       s_rt = now;
       toSpeaker();
@@ -716,10 +742,14 @@ void begin() {
       if (!q) continue;
       int len = (int)(q.size() / 2); if (len > REC_MAX) len = REC_MAX;
       int16_t *d = len > 32 ? palloc(len) : nullptr;
-      if (d) { q.read((uint8_t *)d, len * 2); s_smp[k] = d; s_len[k] = len; }
+      if (d) { q.read((uint8_t *)d, len * 2); s_sdKit[k] = d; s_sdKitLen[k] = len; }
       q.close();
     }
   }
+#ifndef HOST
+  { Preferences p; if (p.begin("mstudio", true)) { uint8_t m = p.getUChar("padclr", 0); p.end(); for (int k = 0; k < PAD_COUNT; k++) s_cleared[k] = (m >> k) & 1; } }
+#endif
+  for (int k = 0; k < PAD_COUNT; k++) baseInstall(k);             // SD sample preferred unless the pad was cleared
   toSpeaker();
   xTaskCreatePinnedToCore(audioTask, "mix", 6144, nullptr, 5, nullptr, 0);
 }
